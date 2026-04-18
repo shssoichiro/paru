@@ -13,7 +13,9 @@ use crate::args::{Arg, Args};
 use crate::chroot::Chroot;
 use crate::clean::clean_untracked;
 use crate::completion::update_aur_cache;
-use crate::config::{Config, LocalRepos, Mode, Op, PackageOverride, Sign, YesNoAllTree, YesNoAsk};
+use crate::config::{
+    Config, LocalRepos, Mode, Op, PackageOverride, PatchSource, Sign, YesNoAllTree, YesNoAsk,
+};
 use crate::devel::{fetch_devel_info, load_devel_info, save_devel_info, DevelInfo};
 use crate::download::{self, Bases};
 use crate::exec::{command_status, has_command};
@@ -549,6 +551,8 @@ impl Installer {
                     self.chroot.makepkg_conf = conf.clone();
                 }
             }
+
+            apply_patches(config, dir, &ov.pkgbuild_patches)?;
         }
 
         let result = self.build_pkgbuild_inner(config, base, repo, dir, pkgdest, &pkg_override);
@@ -1039,7 +1043,7 @@ impl Installer {
 
         targets.extend(self.upgrades.repo_keep.iter().map(Targ::from));
 
-        if self.shoud_just_pacman(config.mode, aur_targets, &self.upgrades, self.ran_pacman) {
+        if self.should_just_pacman(config.mode, aur_targets, &self.upgrades, self.ran_pacman) {
             print_warnings(config, &cache, None);
             let mut args = config.pacman_args();
             let targets = targets.iter().map(|t| t.to_string()).collect::<Vec<_>>();
@@ -1102,7 +1106,7 @@ impl Installer {
         err
     }
 
-    fn shoud_just_pacman(
+    fn should_just_pacman(
         &self,
         mode: Mode,
         aur_targets: &[Targ<'_>],
@@ -1307,6 +1311,13 @@ impl Installer {
     }
 }
 
+fn apply_patches(config: &Config, dir: &Path, patches: &[PatchSource]) -> Result<()> {
+    for patch in patches {
+        patch.apply(config, dir)?;
+    }
+    Ok(())
+}
+
 fn get_base_override(config: &Config, base: &Base) -> Option<PackageOverride> {
     let mut result: Option<PackageOverride> = None;
 
@@ -1314,18 +1325,7 @@ fn get_base_override(config: &Config, base: &Base) -> Option<PackageOverride> {
         if let Some(ov) = config.overrides.get(pkg_name) {
             match result {
                 None => result = Some(ov.clone()),
-                Some(ref mut merged) => {
-                    if ov.makepkg_conf.is_some() {
-                        merged.makepkg_conf = ov.makepkg_conf.clone();
-                    }
-                    for (k, v) in &ov.env {
-                        if let Some(existing) = merged.env.iter_mut().find(|(ek, _)| ek == k) {
-                            existing.1 = v.clone();
-                        } else {
-                            merged.env.push((k.clone(), v.clone()));
-                        }
-                    }
-                }
+                Some(ref mut merged) => merged.merge_from(ov),
             }
         }
     }
