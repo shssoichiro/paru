@@ -27,6 +27,7 @@ use anyhow::{anyhow, bail, ensure, Context, Error, Result};
 use bitflags::bitflags;
 use cini::{Callback, CallbackKind, Ini};
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use reqwest::get;
 use tr::tr;
 use url::Url;
 
@@ -389,7 +390,7 @@ pub enum PatchSource {
 }
 
 impl PatchSource {
-    pub fn apply(&self, config: &Config, dir: &Path) -> Result<()> {
+    pub async fn apply(&self, config: &Config, dir: &Path) -> Result<()> {
         match self {
             PatchSource::Path(path) => {
                 let patch_path = if path.is_absolute() {
@@ -405,13 +406,15 @@ impl PatchSource {
                     .with_context(|| tr!("failed to apply patch '{}'", patch_path.display()))?;
             }
             PatchSource::Url(url) => {
-                let resp = reqwest::blocking::get(url.clone())
-                    .with_context(|| tr!("Failed to download patch from {}", url))?;
-                let resp = resp
+                let bytes = get(url.clone())
+                    .await
+                    .with_context(|| tr!("Failed to download patch from {}", url))?
                     .error_for_status()
-                    .with_context(|| tr!("Failed to download patch from {}", url))?;
+                    .with_context(|| tr!("Failed to download patch from {}", url))?
+                    .bytes()
+                    .await?;
 
-                let bytes = resp.bytes()?;
+                // tempfile for patch.
                 let mut temp = tempfile::NamedTempFile::new()?;
                 use std::io::Write;
                 temp.write_all(&bytes)?;
@@ -421,7 +424,7 @@ impl PatchSource {
 
                 exec::command(&mut cmd)
                     .with_context(|| tr!("failed to apply patch '{}'", temp.path().display()))?;
-            }
+            } // tempfile cleaned up safely by drop.
         }
 
         Ok(())

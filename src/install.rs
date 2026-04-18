@@ -530,7 +530,7 @@ impl Installer {
     }
 
     // TODO: sort out args
-    fn build_pkgbuild(
+    async fn build_pkgbuild(
         &mut self,
         config: &mut Config,
         base: &mut Base,
@@ -553,7 +553,7 @@ impl Installer {
                 }
             }
 
-            apply_patches(config, &cwd, &ov.pkgbuild_patches)?;
+            apply_patches(config, &cwd, &ov.pkgbuild_patches).await?;
         }
 
         let result = self.build_pkgbuild_inner(config, base, repo, dir, pkgdest, &pkg_override);
@@ -756,7 +756,7 @@ impl Installer {
         Ok(())
     }
 
-    fn build_install_pkgbuild(
+    async fn build_install_pkgbuild(
         &mut self,
         config: &mut Config,
         base: &mut Base,
@@ -839,7 +839,7 @@ impl Installer {
         }
 
         let (mut pkgdest, version) = if build {
-            self.build_pkgbuild(config, base, repo, &dir, &cwd)?
+            self.build_pkgbuild(config, base, repo, &dir, &cwd).await?
         } else {
             printtr!("{}: parsing pkg list...", base);
             let (pkgdests, version) = parse_package_list(config, &dir, pkgdest)?;
@@ -936,7 +936,7 @@ impl Installer {
 
             let err = self.build_install_pkgbuild(config, base, repo_server, &cwd);
 
-            match err {
+            match err.await {
                 Ok(_) => {
                     self.failed.pop().unwrap();
                 }
@@ -1002,8 +1002,7 @@ impl Installer {
             self.done_something = true;
         }
         let cwd = std::env::current_dir()?;
-        self.resolve_targets(config, &repo_targets, &aur_targets, &cwd)
-            .await
+        self.resolve_targets(config, &repo_targets, &aur_targets, &cwd).await
     }
 
     async fn resolve_targets<'a>(
@@ -1316,9 +1315,9 @@ impl Installer {
     }
 }
 
-fn apply_patches(config: &Config, dir: &Path, patches: &[PatchSource]) -> Result<()> {
+async fn apply_patches(config: &Config, dir: &Path, patches: &[PatchSource]) -> Result<()> {
     for patch in patches {
-        patch.apply(config, dir)?;
+        patch.apply(config, dir).await?;
     }
     Ok(())
 }
