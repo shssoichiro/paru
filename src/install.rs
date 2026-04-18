@@ -536,6 +536,7 @@ impl Installer {
         base: &mut Base,
         repo: Option<(&str, &str)>,
         dir: &Path,
+        cwd: &Path,
     ) -> Result<(HashMap<String, String>, String)> {
         let pkgdest = repo.map(|r| r.1);
 
@@ -552,7 +553,7 @@ impl Installer {
                 }
             }
 
-            apply_patches(config, dir, &ov.pkgbuild_patches)?;
+            apply_patches(config, &cwd, &ov.pkgbuild_patches)?;
         }
 
         let result = self.build_pkgbuild_inner(config, base, repo, dir, pkgdest, &pkg_override);
@@ -760,6 +761,7 @@ impl Installer {
         config: &mut Config,
         base: &mut Base,
         repo: Option<(&str, &str)>,
+        cwd: &Path,
     ) -> Result<()> {
         let dir = match base {
             Base::Aur(_) => config.build_dir.join(base.package_base()),
@@ -837,7 +839,7 @@ impl Installer {
         }
 
         let (mut pkgdest, version) = if build {
-            self.build_pkgbuild(config, base, repo, &dir)?
+            self.build_pkgbuild(config, base, repo, &dir, &cwd)?
         } else {
             printtr!("{}: parsing pkg list...", base);
             let (pkgdests, version) = parse_package_list(config, &dir, pkgdest)?;
@@ -899,6 +901,7 @@ impl Installer {
         &mut self,
         config: &mut Config,
         build: &mut [Base],
+        cwd: &Path,
     ) -> Result<()> {
         if config.devel {
             printtr!("fetching devel info...");
@@ -931,7 +934,7 @@ impl Installer {
                 .as_ref()
                 .map(|(name, file)| (name.as_str(), file.as_str()));
 
-            let err = self.build_install_pkgbuild(config, base, repo_server);
+            let err = self.build_install_pkgbuild(config, base, repo_server, &cwd);
 
             match err {
                 Ok(_) => {
@@ -998,7 +1001,8 @@ impl Installer {
             config.pkgbuild_repos.refresh(config)?;
             self.done_something = true;
         }
-        self.resolve_targets(config, &repo_targets, &aur_targets)
+        let cwd = std::env::current_dir()?;
+        self.resolve_targets(config, &repo_targets, &aur_targets, &cwd)
             .await
     }
 
@@ -1007,6 +1011,7 @@ impl Installer {
         config: &mut Config,
         repo_targets: &[Targ<'a>],
         aur_targets: &[Targ<'a>],
+        cwd: &Path,
     ) -> Result<()> {
         let mut cache = Cache::new();
         let flags = flags(config);
@@ -1090,7 +1095,7 @@ impl Installer {
         let mut err = Ok(());
 
         if !build.is_empty() {
-            err = self.build_install_pkgbuilds(config, &mut build).await;
+            err = self.build_install_pkgbuilds(config, &mut build, &cwd).await;
         }
 
         if err.is_ok() && config.chroot {
